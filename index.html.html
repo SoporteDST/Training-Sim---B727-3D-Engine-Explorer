@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Motor del Boeing 727 · 3D interactivo</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✈️</text></svg>">
+<style>
+:root{--bg:#f4f5f7;--panel:#ffffff;--text:#16181d;--muted:#5d6472;--accent:#d9480f;--line:#dfe2e8;--chip:#eef0f4;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b0d12;--panel:#14171e;--text:#eef0f4;--muted:#9aa3b2;--accent:#ff8a3d;--line:#262b36;--chip:#1e222c}}
+:root[data-theme="dark"]{--bg:#0b0d12;--panel:#14171e;--text:#eef0f4;--muted:#9aa3b2;--accent:#ff8a3d;--line:#262b36;--chip:#1e222c}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+#view{position:relative;flex:1;min-height:200px;background:radial-gradient(ellipse at 50% 40%,#1c2436,#06080c);overflow:hidden;touch-action:none}
+#view canvas{display:block;position:absolute;inset:0}
+#hd{position:absolute;left:12px;top:10px;color:#fff;pointer-events:none;z-index:2}
+#hd b{font-size:15px;display:block}#hd span{font-size:11px;opacity:.7}
+#labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.lb{position:absolute;left:0;top:0;font-size:10px;color:#cbd5e5;background:rgba(10,14,22,.65);border:1px solid rgba(255,255,255,.15);padding:2px 6px;border-radius:10px;white-space:nowrap;transition:opacity .2s}
+.lb.on{color:#fff;border-color:#ff8a3d;background:rgba(120,50,0,.75)}
+.panel{background:var(--panel);border-top:1px solid var(--line);padding:10px 12px 12px}
+.stages{display:flex;gap:6px}
+button{font:inherit;color:var(--text);background:var(--chip);border:1px solid var(--line);border-radius:10px;padding:7px 8px;cursor:pointer}
+.stages button{flex:1;font-size:13px;font-weight:600;line-height:1.2}
+.stages button small{display:block;font-weight:400;color:var(--muted);font-size:10px}
+button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+button[aria-pressed="true"] small{color:#fff;opacity:.85}
+.tools{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}
+.tools button{font-size:12px;padding:6px 9px}
+.tools label{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;margin-left:auto}
+.tools input{width:70px}
+#it{font-size:14px;margin:10px 0 2px}
+#ip{font-size:13px;line-height:1.4;color:var(--muted);margin:0;min-height:5.6em}
+</style></head><body>
+<div id="view">
+  <div id="hd"><b>Motor Pratt &amp; Whitney JT8D</b><span>Boeing 727 · 3 motores · esquema simplificado</span></div>
+  <div id="labels"></div>
+  <div id="hud" style="position:absolute;right:12px;top:10px;color:#fff;font-size:12px;text-align:right;display:none;pointer-events:none;text-shadow:0 1px 3px rgba(0,0,0,.6)"></div>
+</div>
+<div class="panel">
+  <div class="stages" id="stages">
+    <button aria-pressed="false" data-s="0">1 Admisión<small>Aspira</small></button>
+    <button aria-pressed="false" data-s="1">2 Compresión<small>Comprime</small></button>
+    <button aria-pressed="false" data-s="2">3 Combustión<small>Quema</small></button>
+    <button aria-pressed="false" data-s="3">4 Escape<small>Expulsa</small></button>
+  </div>
+  <div class="tools">
+    <button id="bPlane" aria-pressed="false">Ver avión</button>
+    <button id="bLand" aria-pressed="false">Aterrizaje</button>
+    <button id="bRev" aria-pressed="false">Inversor</button>
+    <button id="bPause" aria-pressed="false">Pausa</button>
+    <button id="bCut" aria-pressed="true">Corte</button>
+    <button id="bEx" aria-pressed="false">Explosionada</button>
+    <button id="bLab" aria-pressed="true">Etiquetas</button>
+    <button id="bTour" aria-pressed="false">Recorrido</button>
+    <label>Vel <input id="spd" type="range" min="0.25" max="2" step="0.05" value="1"></label>
+  </div>
+  <h2 id="it">Turbofán de dos ejes</h2>
+  <p id="ip">Arrastra para girar y pellizca para acercar. Toca una etapa para ver qué hace: aspira, comprime, quema y expulsa.</p>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+var view=document.getElementById('view'),labelsEl=document.getElementById('labels');
+var renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+renderer.localClippingEnabled=true;
+view.insertBefore(renderer.domElement,labelsEl);
+var scene=new THREE.Scene();
+var camera=new THREE.PerspectiveCamera(40,1,0.1,100);
+scene.add(new THREE.HemisphereLight(0xcfe3ff,0x202030,0.95));
+var dl=new THREE.DirectionalLight(0xffffff,0.9);dl.position.set(3,6,8);scene.add(dl);
+var glow=new THREE.PointLight(0xff7a18,0.3,6);glow.position.set(0.8,0,0);scene.add(glow);
+var plane=new THREE.Plane(new THREE.Vector3(0,0,-1),0);
+
+function M(color,o){return new THREE.MeshStandardMaterial(Object.assign({color:color,metalness:.6,roughness:.4,side:THREE.DoubleSide,clippingPlanes:[plane]},o||{}));}
+function clamp(x,a,b){return Math.max(a,Math.min(b,x));}
+function sstep(a,b,x){var t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);}
+
+var parts=[];var statM=M(0x6b7585);
+function part(name,label,x,ex,stages,build){
+  var g=new THREE.Group();g.position.x=x;scene.add(g);
+  var p={name:name,label:label,g:g,x:x,ex:ex,stages:stages,spin:null,rate:0,mats:[],hl:0x1d4d8f,base:0x000000};
+  build(p,g);parts.push(p);return p;
+}
+function rotor(p,g,n,sp,r,nb,col,rate,tp){
+  var s=new THREE.Group();g.add(s);
+  var hubM=M(0x8892a3),bm=M(col,{metalness:.7,roughness:.3});
+  for(var i=0;i<n;i++){
+    var x=(i-(n-1)/2)*sp,rr=r*(1+tp*i);
+    var hub=new THREE.Mesh(new THREE.CylinderGeometry(rr*.3,rr*.3,sp*.55,20),hubM);
+    hub.rotation.z=Math.PI/2;hub.position.x=x;s.add(hub);
+    for(var k=0;k<nb;k++){
+      var pv=new THREE.Group();pv.position.x=x;pv.rotation.x=k/nb*Math.PI*2;
+      var b=new THREE.Mesh(new THREE.BoxGeometry(sp*.35,rr*.75,rr*.06),bm);
+      b.position.y=rr*.62;b.rotation.y=.6;pv.add(b);s.add(pv);
+    }
+  }
+  for(var i2=0;i2<n-1;i2++){var x2=(i2-(n-1)/2)*sp+sp/2,r2=r*(1+tp*(i2+.5));
+    for(var k2=0;k2<20;k2++){var pv2=new THREE.Group();pv2.position.x=x2;pv2.rotation.x=k2/20*Math.PI*2;
+      var b2=new THREE.Mesh(new THREE.BoxGeometry(sp*.2,r2*.62,r2*.04),statM);b2.position.y=r2*.72;b2.rotation.y=-.6;pv2.add(b2);g.add(pv2);}}
+  p.spin=s;p.rate=rate;p.mats=[hubM,bm];
+}
+var LP=5,HP=9;
+part('fan','Fan',-4.3,-2.6,[0,1],function(p,g){
+  rotor(p,g,2,.35,1.05,22,0x5aa9ff,LP,0);
+  var sp=new THREE.Mesh(new THREE.ConeGeometry(.28,.7,24),p.mats[0]);
+  sp.rotation.z=Math.PI/2;sp.position.x=-.55;p.spin.add(sp);
+});
+part('lpc','Comp. baja',-3.1,-1.6,[0,1],function(p,g){rotor(p,g,4,.3,.7,18,0x6fb6ff,LP,-.05);});
+part('hpc','Comp. alta',-1.2,-.7,[1],function(p,g){rotor(p,g,7,.27,.58,18,0xffb066,HP,-.05);p.hl=0x8f4a1d;});
+part('comb','Cámaras',.8,.4,[2],function(p,g){
+  var m=M(0xb0603a,{metalness:.4,emissive:0x3a1200});p.mats=[m];p.hl=0xff4a00;p.base=0x3a1200;
+  for(var i=0;i<9;i++){
+    var c=new THREE.Mesh(new THREE.CylinderGeometry(.11,.1,1.25,16),m);
+    var a=i/9*Math.PI*2;c.rotation.z=Math.PI/2;c.position.set(0,.42*Math.cos(a),.42*Math.sin(a));g.add(c);
+  }
+  var r1=new THREE.Mesh(new THREE.CylinderGeometry(.62,.62,.05,32),m);r1.rotation.z=Math.PI/2;r1.position.x=-.65;g.add(r1);
+  var fnM=M(0xffd9a0,{emissive:0x553300});
+  for(var j=0;j<9;j++){var a3=j/9*Math.PI*2,fn=new THREE.Mesh(new THREE.ConeGeometry(.04,.16,10),fnM);fn.rotation.z=-Math.PI/2;fn.position.set(-.72,.42*Math.cos(a3),.42*Math.sin(a3));g.add(fn);}
+});
+part('hpt','Turb. alta',2.0,1.4,[3],function(p,g){rotor(p,g,1,.3,.55,32,0xff8a3d,HP,0);p.hl=0x8f3a0a;});
+part('lpt','Turb. baja',3.1,2.4,[3],function(p,g){rotor(p,g,3,.32,.58,26,0xff9d5c,LP,.08);p.hl=0x8f3a0a;});
+part('noz','Tobera',4.4,3.4,[3],function(p,g){
+  var m=M(0x9aa3b2);p.mats=[m];p.hl=0x4a3a2a;
+  var c=new THREE.Mesh(new THREE.CylinderGeometry(.1,.5,1.3,32),m);c.rotation.z=-Math.PI/2;g.add(c);
+  var dm=M(0xb7c0cf);p.mats.push(dm);
+  p.doors=[1,-1].map(function(sg){var pv=new THREE.Group();pv.position.set(.1,sg*.5,0);var dd=new THREE.Mesh(new THREE.BoxGeometry(.7,.04,1.0),dm);dd.position.x=.35;pv.add(dd);g.add(pv);return pv;});
+});
+
+/* ejes */
+var s1=new THREE.Mesh(new THREE.CylinderGeometry(.09,.09,7.4,16),M(0x5aa9ff));s1.rotation.z=Math.PI/2;s1.position.x=-.6;scene.add(s1);
+var s2=new THREE.Mesh(new THREE.CylinderGeometry(.17,.17,4.3,20,1,true),M(0xffb066));s2.rotation.z=Math.PI/2;s2.position.x=0;scene.add(s2);
+
+/* carcasas */
+var cas=[];var casM=M(0xaab4c4,{transparent:true,opacity:.3,depthWrite:false,metalness:.2});
+function lathe(pts){var m=new THREE.Mesh(new THREE.LatheGeometry(pts.map(function(q){return new THREE.Vector2(q[0],q[1]);}),64),casM);m.rotation.z=-Math.PI/2;scene.add(m);cas.push(m);}
+lathe([[1.34,-4.75],[1.34,-3],[1.3,-.5],[1.2,1.8],[1.0,3.6],[.72,4.7]]);
+lathe([[.8,-3.7],[.8,-3.5],[.78,-1],[.72,2.5],[.55,4.2]]);
+
+/* flujo de aire */
+function temp(x){if(x<-3.7)return 0;if(x<-.2)return .1+.35*(x+3.7)/3.5;if(x<1.5)return .45+.55*Math.min(1,(x+.2)/1.2);if(x<3.6)return 1-.35*(x-1.5)/2.1;return .55-.15*(x-3.6)/1.2;}
+var cB=new THREE.Color(0x4db8ff),cO=new THREE.Color(0xff8a2a),cW=new THREE.Color(0xfff3c4),tc=new THREE.Color();
+function tcol(t){if(t<.5)tc.copy(cB).lerp(cO,t*2);else tc.copy(cO).lerp(cW,(t-.5)*2);return tc;}
+var N=900,pos=new Float32Array(N*3),col=new Float32Array(N*3),pd=[];
+for(var i=0;i<N;i++)pd.push({x:-4.9+Math.random()*9.8,a:Math.random()*6.283,u:Math.random(),core:Math.random()<.55,sp:.8+Math.random()*.4});
+var geo=new THREE.BufferGeometry();
+geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+var pts=new THREE.Points(geo,new THREE.PointsMaterial({size:.06,vertexColors:true,transparent:true,opacity:.9,depthWrite:false,blending:THREE.AdditiveBlending,clippingPlanes:[plane]}));
+pts.frustumCulled=false;scene.add(pts);
+var speed=1,paused=false,rvOn=false,rvv=0;
+function stepP(dt){
+  for(var i=0;i<N;i++){
+    var d=pd[i],tm=d.core?temp(d.x):.04+(d.x>3?.3*Math.min(1,(d.x-3)/1.5):0);
+    if(d.rv&&rvOn){d.x-=dt*speed*d.sp*3;d.rr+=dt*speed*1.7;if(d.rr>2){d.rv=0;d.rr=0;d.x=-4.9-Math.random()*.4;}}
+    else{d.rv=0;d.rr=0;d.x+=dt*speed*d.sp*(1.6+1.2*tm);if(rvOn&&d.x>4.3)d.rv=1;}
+    if(d.x>4.9)d.x=-4.9-Math.random()*.4;
+    d.a+=dt*speed*.9;
+    var r;
+    if(d.core){var Rc=(.95-.4*sstep(-4.6,-3.5,d.x))*(1-.35*sstep(3.5,4.8,d.x));r=d.u*Rc;}
+    else{var s=sstep(2.6,4.6,d.x);r=(.9+.18*d.u)*(1-s)+(.45*d.u+.05)*s;}
+    if(d.rv)r+=d.rr;
+    pos[i*3]=d.x;pos[i*3+1]=r*Math.cos(d.a);pos[i*3+2]=r*Math.sin(d.a);
+    var c=tcol(tm);col[i*3]=c.r;col[i*3+1]=c.g;col[i*3+2]=c.b;
+  }
+  geo.attributes.position.needsUpdate=true;geo.attributes.color.needsUpdate=true;
+}
+
+/* detalle del motor real */
+var engDetail=new THREE.Group();scene.add(engDetail);
+var gm=M(0x7d8797);
+var gb=new THREE.Mesh(new THREE.BoxGeometry(1.6,.3,.45),gm);gb.position.set(-2.6,-.95,0);engDetail.add(gb);
+var dr=new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,.4,8),gm);dr.position.set(-2.6,-.75,0);engDetail.add(dr);
+var py=new THREE.Mesh(new THREE.BoxGeometry(2.4,.28,.14),gm);py.position.set(-.8,1.4,0);engDetail.add(py);
+
+/* avión completo (vista alterna) */
+var planeG=new THREE.Group();planeG.visible=false;scene.add(planeG);
+var fm=M(0xe8edf5,{metalness:.2,roughness:.5,clippingPlanes:[]});
+var fu=new THREE.Mesh(new THREE.LatheGeometry([[0,-7],[.45,-6.6],[.7,-5.5],[.78,-4],[.78,2.5],[.7,4.5],[.45,6.2],[.18,7]].map(function(q){return new THREE.Vector2(q[0],q[1]);}),48),fm);
+fu.rotation.z=-Math.PI/2;planeG.add(fu);
+function flat(pp,depth,mat){var sh=new THREE.Shape();pp.forEach(function(q,i){if(i)sh.lineTo(q[0],q[1]);else sh.moveTo(q[0],q[1]);});return new THREE.Mesh(new THREE.ExtrudeGeometry(sh,{depth:depth,bevelEnabled:false}),mat);}
+var wm=M(0xc9d2e0,{metalness:.3,clippingPlanes:[]});
+var wing=flat([[-.8,.6],[2.2,5.4],[3,5.4],[1.4,.6]],.08,wm);wing.rotation.x=Math.PI/2;wing.position.y=-.3;planeG.add(wing);
+var wing2=wing.clone();wing2.scale.y=-1;planeG.add(wing2);
+var fin=flat([[3.6,.5],[6.3,.5],[6.7,3.1],[5.9,3.1]],.08,M(0x1f5fbf,{clippingPlanes:[]}));fin.position.z=-.04;planeG.add(fin);
+var hs=flat([[5.5,0],[6.6,0],[7.05,2.4],[6.45,2.4]],.06,wm);hs.rotation.x=Math.PI/2;hs.position.y=3.1;planeG.add(hs);
+var hs2=hs.clone();hs2.scale.y=-1;planeG.add(hs2);
+var em=M(0xffb066,{metalness:.5,roughness:.35,clippingPlanes:[]});
+var dk=new THREE.MeshBasicMaterial({color:0x10141c,side:THREE.DoubleSide}),exM=new THREE.MeshBasicMaterial({color:0xff8a3d,side:THREE.DoubleSide});
+var podDoors=[];
+function pod(x,y,z,len){
+  if(z!==0){var dd2=[1,-1].map(function(sg){var pv=new THREE.Group();pv.position.set(x+len/2,y+sg*.22,z);var dm2=new THREE.Mesh(new THREE.BoxGeometry(.3,.02,.5),wm);dm2.position.x=.15;pv.add(dm2);planeG.add(pv);return pv;});podDoors.push(dd2);}
+  var c=new THREE.Mesh(new THREE.CylinderGeometry(.3,.27,len,24),em);c.rotation.z=Math.PI/2;c.position.set(x,y,z);planeG.add(c);
+  var f=new THREE.Mesh(new THREE.CircleGeometry(.26,24),dk);f.rotation.y=-Math.PI/2;f.position.set(x-len/2-.01,y,z);planeG.add(f);
+  var t=new THREE.Mesh(new THREE.CircleGeometry(.2,24),exM);t.rotation.y=Math.PI/2;t.position.set(x+len/2+.01,y,z);planeG.add(t);
+}
+pod(5.2,.7,1.1,1.7);pod(5.2,.7,-1.1,1.7);pod(4.3,1.0,0,1.2);
+[1,-1].forEach(function(sg){var pl=new THREE.Mesh(new THREE.BoxGeometry(1.2,.1,.5),wm);pl.position.set(5.2,.6,sg*.55);planeG.add(pl);});
+var tp2=new THREE.Mesh(new THREE.CircleGeometry(.15,20),exM);tp2.rotation.y=Math.PI/2;tp2.position.set(7.02,0,0);planeG.add(tp2);
+var wmT=new THREE.MeshBasicMaterial({color:0x1a2433}),wg=new THREE.BoxGeometry(.12,.1,.04);
+for(var wx=-3.9;wx<=2.4;wx+=.3){[1,-1].forEach(function(sg){var wn=new THREE.Mesh(wg,wmT);wn.position.set(wx,.28,sg*.72);planeG.add(wn);});}
+[[-6.05,.54],[-5.8,.6]].forEach(function(c){[1,-1].forEach(function(sg){var wn=new THREE.Mesh(new THREE.BoxGeometry(.2,.13,.04),wmT);wn.position.set(c[0],.2,sg*c[1]);planeG.add(wn);});});
+var sm=new THREE.MeshBasicMaterial({color:0x1f5fbf});
+[1,-1].forEach(function(sg){var sb2=new THREE.Mesh(new THREE.BoxGeometry(6.5,.1,.02),sm);sb2.position.set(-.75,-.08,sg*.785);planeG.add(sb2);});
+var rad=new THREE.Mesh(new THREE.SphereGeometry(.17,16,12),dk);rad.position.set(-6.9,0,0);planeG.add(rad);
+/* matrícula y leyenda */
+function tTex(txt,w,h,font,col){var c=document.createElement('canvas');c.width=w;c.height=h;var x=c.getContext('2d');x.font=font;x.fillStyle=col;x.textAlign='center';x.textBaseline='middle';x.fillText(txt,w/2,h/2);var t=new THREE.CanvasTexture(c);t.anisotropy=4;return t;}
+function decal(txt,w,h,pw,ph2,font,col,px,py,pz,flip){var m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({map:tTex(txt,pw,ph2,font,col),transparent:true}));m.position.set(px,py,pz);if(flip)m.rotation.y=Math.PI;planeG.add(m);}
+decal('CONALEP Aeronáutico',3,.22,1024,75,'bold 56px sans-serif','#1f5fbf',-1.4,.1,.784,false);
+decal('CONALEP Aeronáutico',3,.22,1024,75,'bold 56px sans-serif','#1f5fbf',-1.4,.1,-.784,true);
+decal('XA-AAD',1.5,.4,512,136,'bold 100px sans-serif','#ffffff',5.57,1.7,.045,false);
+decal('XA-AAD',1.5,.4,512,136,'bold 100px sans-serif','#ffffff',5.57,1.7,-.045,true);
+
+/* modo aterrizaje */
+camera.far=300;camera.updateProjectionMatrix();
+var landG=new THREE.Group();landG.visible=false;scene.add(landG);
+var gMt=new THREE.MeshStandardMaterial({color:0x3d6b3a,roughness:1}),rMt=new THREE.MeshStandardMaterial({color:0x4a4f57,roughness:.9}),lMt=new THREE.MeshBasicMaterial({color:0xf2f2f2}),pMt=new THREE.MeshBasicMaterial({color:0xfff2a8});
+var grass=new THREE.Mesh(new THREE.PlaneGeometry(600,600),gMt);grass.rotation.x=-Math.PI/2;landG.add(grass);
+landG.add(new THREE.Mesh(new THREE.BoxGeometry(600,.05,12),rMt));
+var stripes=new THREE.Group(),lamps=new THREE.Group();landG.add(stripes);landG.add(lamps);
+for(var si=-40;si<=40;si++){var sk=new THREE.Mesh(new THREE.BoxGeometry(3,.06,.2),lMt);sk.position.set(si*8,.03,0);stripes.add(sk);}
+for(var li=-25;li<=25;li++){[1,-1].forEach(function(sg){var lp=new THREE.Mesh(new THREE.BoxGeometry(.12,.5,.12),pMt);lp.position.set(li*12,.25,sg*6.8);lamps.add(lp);});}
+var gearG=new THREE.Group();gearG.visible=false;planeG.add(gearG);
+var gm2=M(0x6b7585,{clippingPlanes:[]}),tyM=new THREE.MeshStandardMaterial({color:0x15171b,roughness:.9});
+function wheel(x,y,z,r){var w=new THREE.Mesh(new THREE.CylinderGeometry(r,r,.16,18),tyM);w.rotation.x=Math.PI/2;w.position.set(x,y,z);gearG.add(w);}
+[1,-1].forEach(function(sg){var s=new THREE.Mesh(new THREE.BoxGeometry(.08,.8,.08),gm2);s.position.set(.9,-.7,sg*.75);gearG.add(s);wheel(.9,-1.13,sg*.75-.1,.22);wheel(.9,-1.13,sg*.75+.1,.22);});
+var ns=new THREE.Mesh(new THREE.BoxGeometry(.08,.6,.08),gm2);ns.position.set(-5.4,-.9,0);gearG.add(ns);wheel(-5.4,-1.19,0,.16);
+var PN=150,ppos=new Float32Array(PN*3),pu=[],pg=new THREE.BufferGeometry();
+for(var q0=0;q0<PN;q0++){pu.push({l:Math.random()*1.1,o:q0%3,x:0,y:-100,z:0,vx:0,vy:0,vz:0});ppos[q0*3+1]=-100;}
+pg.setAttribute('position',new THREE.BufferAttribute(ppos,3));
+var puffs=new THREE.Points(pg,new THREE.PointsMaterial({color:0xeaf2ff,size:.14,transparent:true,opacity:.55,depthWrite:false}));
+puffs.frustumCulled=false;planeG.add(puffs);
+var origins=[[6.1,.7,1.1],[6.1,.7,-1.1],[7.0,0,0]];
+var land={t:0,dist:0,prv:0,ph:-1},hud=document.getElementById('hud');
+var phT=[['Aproximación','El avión baja hacia la pista con los motores dando empuje normal hacia atrás.'],['Toma de contacto','Las ruedas tocan la pista, los motores bajan a ralentí y empiezan a actuar los frenos de las ruedas.'],['Inversor desplegado','Las compuertas de los motores laterales se cierran detrás del chorro y lo desvían hacia adelante. Ese empuje inverso frena al avión junto con los frenos.'],['Frenado y rodaje','Al bajar la velocidad se retira el inversor, para no aspirar gases ni objetos de la pista, y el avión sigue rodando.']];
+function landStep(dt){
+  var L=land;L.t+=dt*speed;var t=L.t;
+  if(t>20){L.t=0;L.dist=0;t=0;}
+  var alt=t<5?2.4*(1-t/5)+.3*(t/5):(t<6.2?.3*(1-(t-5)/1.2):0);
+  var v=9-8.3*sstep(6.2,14.5,t);
+  var pit=t<5?3:(t<6.2?3+2*(t-5)/1.2:5*(1-sstep(6.2,7.2,t)));
+  var rv=(t>6.6&&t<14)?1:0;
+  L.prv+=(rv-L.prv)*Math.min(1,dt*4);
+  L.dist+=v*dt*speed;
+  landG.position.y=-1.375-alt;stripes.position.x=L.dist%8;lamps.position.x=L.dist%12;
+  planeG.rotation.z=-pit*Math.PI/180;
+  podDoors.forEach(function(d){d[0].rotation.z=-.8*L.prv;d[1].rotation.z=.8*L.prv;});
+  var ph=t<5?0:t<6.6?1:t<14?2:3;
+  if(ph!==L.ph){L.ph=ph;document.getElementById('it').textContent=phT[ph][0];document.getElementById('ip').textContent=phT[ph][1];}
+  hud.innerHTML=phT[ph][0]+'<br>≈ '+Math.round(v/9*260)+' km/h (simulado)';
+  for(var q=0;q<PN;q++){var u=pu[q];u.l+=dt;
+    if(u.l>1.1){u.l=0;
+      if(L.prv>.3){var o=origins[u.o];u.x=o[0]+Math.random()*.1;u.y=o[1];u.z=o[2];u.vx=-(1.4+Math.random()*1.2);u.vy=(Math.random()-.5)*1.6;u.vz=(u.o===0?1:u.o===1?-1:Math.random()-.5)*(1+Math.random()*.8);}
+      else{u.x=0;u.y=-100;u.z=0;u.vx=0;u.vy=0;u.vz=0;}}
+    u.x+=u.vx*dt;u.y+=u.vy*dt;u.z+=u.vz*dt;ppos[q*3]=u.x;ppos[q*3+1]=u.y;ppos[q*3+2]=u.z;}
+  pg.attributes.position.needsUpdate=true;
+}
+
+var extras=[
+ {t:'Caja de accesorios',x:-2.6,y:-1.3,z:0,m:'engine'},
+ {t:'Pilón de montaje',x:-.8,y:1.75,z:0,m:'engine'},
+ {t:'Compuertas del inversor',x:4.9,y:-1.0,z:0,m:'engine'},
+ {t:'Inversor activado',x:6.2,y:1.6,z:1.1,m:'land'},
+ {t:'Motor 1',x:5.2,y:1.2,z:1.1,m:'plane'},
+ {t:'Motor 3',x:5.2,y:1.2,z:-1.1,m:'plane'},
+ {t:'Motor 2 (central, ducto en S)',x:4.2,y:1.6,z:0,m:'plane'},
+ {t:'Ala (sin motores)',x:1.4,y:-.3,z:3.6,m:'plane'},
+ {t:'Cola en T',x:6.3,y:3.5,z:0,m:'plane'}
+];
+extras.forEach(function(e){var d=document.createElement('div');d.className='lb';d.textContent=e.t;labelsEl.appendChild(d);e.el=d;});
+
+/* etiquetas */
+parts.forEach(function(p,i){var e=document.createElement('div');e.className='lb';e.textContent=p.label;labelsEl.appendChild(e);p.el=e;p.ly=(i%2?-1:1)*1.6;});
+
+/* estado e interfaz */
+var info=[
+ ['1 · Admisión: aspira','El fan de 2 etapas y el compresor de baja jalan el aire. En el JT8D una parte pasa por fuera del núcleo (bypass cercano a 1:1), lo que da empuje extra y reduce el ruido.'],
+ ['2 · Compresión: comprime','Siete etapas de alta presión se suman a las de baja. El aire sale con una presión unas 16 veces mayor y mucho más caliente. Dos ejes concéntricos giran a distinta velocidad.'],
+ ['3 · Combustión: quema','Nueve cámaras de combustión, una por cada «lata», mezclan el combustible con el aire comprimido y lo queman de forma continua. Los gases salen a más de 900 °C.'],
+ ['4 · Escape: expulsa','Los gases calientes mueven la turbina de alta (1 etapa) y la de baja (3 etapas), que accionan los compresores y el fan. El resto sale por la tobera como empuje: unas 14,500 lbf en el JT8D-9.']
+];
+var st={stage:-1,cut:true,ex:false,lab:true,tour:false,mode:'engine'},exv=0,focus=0,dist=18,zoom=1,az=.35,el=.25,tourT=null;
+var sb=[].slice.call(document.querySelectorAll('#stages button'));
+function setStage(s,fromTour){
+  if(!fromTour&&st.tour)toggleTour();
+  st.stage=s;
+  sb.forEach(function(b){b.setAttribute('aria-pressed',String(+b.dataset.s===s));});
+  document.getElementById('it').textContent=s<0?'Turbofán de dos ejes':info[s][0];
+  document.getElementById('ip').textContent=s<0?'Arrastra para girar y pellizca para acercar. Toca una etapa para ver qué hace: aspira, comprime, quema y expulsa.':info[s][1];
+  parts.forEach(function(p){
+    var on=s>=0&&p.stages.indexOf(s)>=0;
+    p.mats.forEach(function(m){m.emissive.setHex(on?p.hl:p.base);});
+    p.el.classList.toggle('on',on);
+  });
+  zoom=1;
+}
+sb.forEach(function(b){b.addEventListener('click',function(){if(st.mode!=='engine')setMode('engine');var s=+b.dataset.s;setStage(st.stage===s?-1:s);});});
+function tog(id,key,fn){var b=document.getElementById(id);b.addEventListener('click',function(){st[key]=!st[key];b.setAttribute('aria-pressed',String(st[key]));if(fn)fn();});return b;}
+tog('bCut','cut',function(){plane.constant=st.cut?0:1000;});
+tog('bEx','ex');tog('bLab','lab');
+var bP=document.getElementById('bPause');bP.addEventListener('click',function(){paused=!paused;bP.setAttribute('aria-pressed',String(paused));bP.textContent=paused?'Reanudar':'Pausa';});
+var bT=document.getElementById('bTour');
+function toggleTour(){
+  st.tour=!st.tour;bT.setAttribute('aria-pressed',String(st.tour));
+  if(tourT){clearInterval(tourT);tourT=null;}
+  if(st.tour){if(st.mode!=='engine')setMode('engine');setStage(0,true);tourT=setInterval(function(){setStage((st.stage+1)%4,true);},6000);}
+}
+bT.addEventListener('click',toggleTour);
+document.getElementById('spd').addEventListener('input',function(e){speed=+e.target.value;});
+var bPl=document.getElementById('bPlane');
+function setMode(m){
+  st.mode=m;var ld=m==='land',pl=m==='plane'||ld;
+  planeG.visible=pl;[s1,s2,engDetail,pts].forEach(function(o){o.visible=!pl;});
+  cas.forEach(function(o){o.visible=!pl;});parts.forEach(function(p){p.g.visible=!pl;});
+  bPl.setAttribute('aria-pressed',String(m==='plane'));bPl.textContent=(pl&&!ld)?'Ver motor':'Ver avión';
+  document.getElementById('bLand').setAttribute('aria-pressed',String(ld));
+  landG.visible=ld;gearG.visible=ld;hud.style.display=ld?'block':'none';
+  view.style.background=ld?'linear-gradient(#3c6db3,#bcd7f2 72%)':'';
+  scene.fog=ld?new THREE.Fog(0xbcd7f2,45,170):null;
+  if(!ld)planeG.rotation.z=0;
+  if(ld){land.t=0;land.dist=0;land.ph=-1;land.prv=0;az=.45;el=.1;}
+  if(pl&&st.tour)toggleTour();
+  setStage(-1);
+  if(pl){document.getElementById('it').textContent='Boeing 727: motores en la cola';document.getElementById('ip').textContent='El 727 lleva tres motores JT8D en la cola: dos laterales y uno central que respira por una toma sobre el fuselaje y expulsa por un ducto en S. Las alas no llevan motores. La cola en T mantiene el estabilizador lejos del chorro.';}
+  zoom=1;
+}
+bPl.addEventListener('click',function(){setMode(st.mode==='plane'?'engine':'plane');});
+document.getElementById('bLand').addEventListener('click',function(){setMode(st.mode==='land'?'plane':'land');});
+var bRv=document.getElementById('bRev');
+bRv.addEventListener('click',function(){
+  if(st.mode!=='engine')setMode('engine');
+  rvOn=!rvOn;bRv.setAttribute('aria-pressed',String(rvOn));
+  if(rvOn){document.getElementById('it').textContent='Inversor de empuje';document.getElementById('ip').textContent='Al aterrizar, dos compuertas se cierran detrás del chorro y lo desvían hacia adelante y a los lados. Así el motor ayuda a frenar el avión.';zoom=1;}
+  else setStage(st.stage);
+});
+
+/* cámara táctil */
+var ptrs={},lastPinch=0;
+var cv=renderer.domElement;
+cv.addEventListener('pointerdown',function(e){cv.setPointerCapture(e.pointerId);ptrs[e.pointerId]={x:e.clientX,y:e.clientY};});
+cv.addEventListener('pointerup',function(e){delete ptrs[e.pointerId];lastPinch=0;});
+cv.addEventListener('pointercancel',function(e){delete ptrs[e.pointerId];lastPinch=0;});
+cv.addEventListener('pointermove',function(e){
+  var q=ptrs[e.pointerId];if(!q)return;
+  var ids=Object.keys(ptrs);
+  if(ids.length===1){az-=(e.clientX-q.x)*.008;el=clamp(el+(e.clientY-q.y)*.006,-1.2,1.2);}
+  q.x=e.clientX;q.y=e.clientY;
+  if(ids.length===2){
+    var a=ptrs[ids[0]],b=ptrs[ids[1]],d=Math.hypot(a.x-b.x,a.y-b.y);
+    if(lastPinch)zoom=clamp(zoom*lastPinch/d,.3,2.2);
+    lastPinch=d;
+  }
+});
+cv.addEventListener('wheel',function(e){e.preventDefault();zoom=clamp(zoom*(1+e.deltaY*.001),.3,2.2);},{passive:false});
+
+function resize(){
+  var w=view.clientWidth,h=view.clientHeight;if(!w||!h)return;
+  renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();
+}
+window.addEventListener('resize',resize);
+if(window.ResizeObserver)new ResizeObserver(resize).observe(view);
+resize();
+
+var v3=new THREE.Vector3(),last=performance.now();
+function frame(now){
+  requestAnimationFrame(frame);
+  var dt=Math.min(.05,(now-last)/1000);last=now;
+  var asp=camera.aspect,t20=Math.tan(20*Math.PI/180);
+  exv+=((st.ex?1:0)-exv)*Math.min(1,dt*5);
+  rvv+=((rvOn?1:0)-rvv)*Math.min(1,dt*4);
+  parts.forEach(function(p){if(p.doors){p.doors[0].rotation.z=-.75*rvv;p.doors[1].rotation.z=.75*rvv;}});
+  parts.forEach(function(p){p.g.position.x=p.x+p.ex*exv;if(!paused&&p.spin)p.spin.rotation.x+=p.rate*speed*dt;});
+  casM.opacity=.3-.22*exv;
+  if(!paused&&st.mode==='engine')stepP(dt);
+  if(!paused&&st.mode==='land')landStep(dt);
+  var tf=0,base=Math.max(11,5.8/(t20*asp));
+  if(st.mode==='land'){tf=1;base=Math.max(15,7.5/(t20*asp));}
+  else if(st.mode==='plane')base=Math.max(17,8.5/(t20*asp));
+  else if(rvOn&&st.stage<0){tf=3.4;base=Math.max(8,4/(t20*asp));}
+  if(st.stage>=0){
+    var sel=parts.filter(function(p){return p.stages.indexOf(st.stage)>=0;});
+    tf=sel.reduce(function(a,p){return a+p.g.position.x;},0)/sel.length;
+    base=Math.max(7,3.4/(t20*asp));
+  }
+  if(st.mode==='engine')base*=1+.5*exv;
+  focus+=(tf-focus)*Math.min(1,dt*3);
+  dist+=(base*zoom-dist)*Math.min(1,dt*3);
+  camera.position.set(focus+dist*Math.sin(az)*Math.cos(el),dist*Math.sin(el),dist*Math.cos(az)*Math.cos(el));
+  camera.lookAt(focus,0,0);
+  glow.intensity+=((st.stage===2?2.4:.3)-glow.intensity)*Math.min(1,dt*4);
+  var w=view.clientWidth,h=view.clientHeight;
+  parts.forEach(function(p){
+    v3.set(p.g.position.x,p.ly,0).project(camera);
+    var vis=st.lab&&v3.z<1&&st.mode==='engine';
+    p.el.style.opacity=vis?1:0;
+    p.el.style.transform='translate('+((v3.x*.5+.5)*w)+'px,'+((-v3.y*.5+.5)*h)+'px) translate(-50%,-50%)';
+  });
+  extras.forEach(function(e){
+    v3.set(e.x,e.y,e.z).project(camera);
+    var vv=st.lab&&v3.z<1&&st.mode===e.m&&(e.m!=='land'||land.prv>.5);
+    e.el.style.opacity=vv?1:0;
+    e.el.style.transform='translate('+((v3.x*.5+.5)*w)+'px,'+((-v3.y*.5+.5)*h)+'px) translate(-50%,-50%)';
+  });
+  renderer.render(scene,camera);
+}
+setStage(-1);
+requestAnimationFrame(frame);
+})();
+</script>
+</body></html>
